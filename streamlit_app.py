@@ -1,8 +1,4 @@
-"""PV Case Lab: persistent pharmacovigilance training simulation.
-
-Training use only. The SQLite database is the source of truth; Streamlit session
-state is used only for temporary UI selections, never for case records.
-"""
+"""PV Case Lab: persistent pharmacovigilance training simulation."""
 from __future__ import annotations
 
 from datetime import date
@@ -10,7 +6,6 @@ from pathlib import Path
 import mimetypes
 
 import streamlit as st
-
 import pv_storage as storage
 
 st.set_page_config(page_title="PV Case Lab", page_icon="🧬", layout="wide")
@@ -33,7 +28,6 @@ def current_user() -> str:
 
 
 def get_cases(search: str = "") -> list[dict]:
-    """Always read cases from SQLite so data survives a browser logout/session reset."""
     return storage.get_cases(search)
 
 
@@ -50,7 +44,6 @@ def field_value(data: dict, *keys: str) -> str:
 
 
 def generate_narrative(case_id: str, data: dict) -> str:
-    """Create an editable enterprise-inspired training narrative from saved data."""
     return f"""CASE NARRATIVE — TRAINING TEMPLATE
 
 CASE IDENTIFICATION
@@ -78,7 +71,7 @@ Dechallenge/rechallenge: {field_value(data, 'Dechallenge')} / {field_value(data,
 
 ADVERSE EVENT AND CLINICAL COURSE
 Reported event: {field_value(data, 'Reported verbatim term', 'Verbatim Event', 'Reported Event', 'Reported Adverse Event')}
-MedDRA coded term (if supplied): {field_value(data, 'MedDRA PT')} / {field_value(data, 'MedDRA LLT')}
+MedDRA coded term: {field_value(data, 'MedDRA PT')} / {field_value(data, 'MedDRA LLT')}
 Onset date: {field_value(data, 'Event onset date', 'Event Onset Date')}
 Seriousness criteria: {field_value(data, 'Seriousness criteria', 'Seriousness Criteria')}
 Outcome: {field_value(data, 'Event outcome', 'Event Outcome')}
@@ -89,18 +82,17 @@ CAUSALITY AND CASE SUMMARY
 WHO-UMC assessment: {field_value(data, 'WHO-UMC Category')}
 Assessment rationale: {field_value(data, 'Assessment rationale', 'Assessment Rationale')}
 
-This is an editable training narrative based only on information entered in this synthetic case. Missing information is displayed as Not Reported. Human review is required; this is not a validated Argus, ARISg, or regulatory narrative format.
+Synthetic training narrative based only on entered information. Missing information is shown as Not Reported. Human review is required; this is not a validated or proprietary system format.
 """
 
 
 def render_dashboard() -> None:
     st.header("Training Dashboard")
     cases = get_cases()
-    total = len(cases)
     complete = sum(case["stage"] == "Completed" for case in cases)
     metrics = st.columns(3)
-    metrics[0].metric("Total Cases", total)
-    metrics[1].metric("Open Cases", total - complete)
+    metrics[0].metric("Total Cases", len(cases))
+    metrics[1].metric("Open Cases", len(cases) - complete)
     metrics[2].metric("Completed Cases", complete)
     st.subheader("Workflow Overview")
     for stage in STAGES:
@@ -143,12 +135,9 @@ def render_intake() -> None:
         }
         try:
             case_id = storage.create_case(payload, current_user())
-            st.success(f"Case {case_id} saved to the persistent database.")
+            st.success(f"Case {case_id} saved to the local database.")
         except Exception as exc:
-            if "UNIQUE constraint failed" in str(exc):
-                st.error("That WWUID is already assigned to another case.")
-            else:
-                st.error(f"Could not save the case: {exc}")
+            st.error("That WWUID may already be assigned to another case." if "UNIQUE constraint failed" in str(exc) else f"Could not save case: {exc}")
 
 
 def save_section(case_id: str, section: str, values: dict) -> None:
@@ -157,9 +146,37 @@ def save_section(case_id: str, section: str, values: dict) -> None:
     data.update(values)
     try:
         storage.update_case(case_id, data, current_user(), f"{section} information saved")
-        st.success(f"{section} saved to the persistent database.")
+        st.success(f"{section} saved.")
     except Exception as exc:
         st.error(f"Could not save {section}: {exc}")
+
+
+def render_section_form(case_id: str, data: dict, section: str, fields: list[str]) -> None:
+    st.subheader(f"{section} Information")
+    long_fields = {
+        "Structured Case Narrative", "Event description", "Medical history",
+        "Relevant medical conditions", "Patient medical history comments",
+        "Assessment rationale", "Assessment comments", "Product coding comments",
+        "Coding comments", "Comments", "Literature Assessment",
+    }
+    with st.form(f"save_{section}_{case_id}"):
+        values = {}
+        # Two-column field layout keeps each ICSR tab readable and responsive.
+        for start in range(0, len(fields), 2):
+            row = st.columns(2)
+            for column, field in zip(row, fields[start:start + 2]):
+                current = str(data.get(field, ""))
+                if field in long_fields:
+                    if field == "Structured Case Narrative":
+                        current = current or generate_narrative(case_id, data)
+                    values[field] = st.text_area(field, value=current, height=180 if field == "Structured Case Narrative" else 100)
+                elif field == "WHO-UMC Category":
+                    choices = ["Certain", "Probable/Likely", "Possible", "Unlikely", "Conditional/Unclassified", "Unassessable/Unclassifiable"]
+                    values[field] = column.selectbox(field, choices, index=choices.index(current) if current in choices else 0)
+                else:
+                    values[field] = column.text_input(field, value=current)
+        if st.form_submit_button(f"Save {section}"):
+            save_section(case_id, section, values)
 
 
 def render_processing() -> None:
@@ -184,30 +201,33 @@ def render_processing() -> None:
         "Causality": ["WHO-UMC Category", "Assessment rationale", "Reviewer", "Assessment date", "Assessment comments"],
         "Narrative": ["Structured Case Narrative"],
     }
-    tabs = st.tabs(list(fields_by_tab) + ["Documents", "Laboratory", "Literature"])
+    tab_names = list(fields_by_tab) + ["Documents", "Laboratory", "Literature"]
+
+    # Streamlit's default tab strip is a single horizontally scrolling line.
+    # Wrap the tab buttons into two rows so all case sections are easier to navigate.
+    st.markdown("""<style>
+    div[data-testid="stTabs"] div[data-baseweb="tab-list"] {
+        display: flex;
+        flex-wrap: wrap;
+        overflow-x: visible;
+        gap: 0.25rem 0.35rem;
+        white-space: normal;
+    }
+    div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        flex: 1 1 15%;
+        min-width: 105px;
+        justify-content: center;
+    }
+    </style>""", unsafe_allow_html=True)
+    tabs = st.tabs(tab_names)
+
     for tab, (section, fields) in zip(tabs[:len(fields_by_tab)], fields_by_tab.items()):
         with tab:
-            st.subheader(f"{section} Information")
-            with st.form(f"save_{section}_{case_id}"):
-                values = {}
-                for field in fields:
-                    current = str(data.get(field, ""))
-                    if field == "WHO-UMC Category":
-                        choices = ["Certain", "Probable/Likely", "Possible", "Unlikely", "Conditional/Unclassified", "Unassessable/Unclassifiable"]
-                        values[field] = st.selectbox(field, choices, index=choices.index(current) if current in choices else 0)
-                    elif field == "Structured Case Narrative":
-                        default = current or generate_narrative(case_id, data)
-                        values[field] = st.text_area(field, value=default, height=350)
-                    elif field in {"Event description", "Medical history", "Relevant medical conditions", "Patient medical history comments", "Assessment rationale", "Assessment comments", "Product coding comments", "Coding comments"}:
-                        values[field] = st.text_area(field, value=current)
-                    else:
-                        values[field] = st.text_input(field, value=current)
-                if st.form_submit_button(f"Save {section}"):
-                    save_section(case_id, section, values)
+            render_section_form(case_id, data, section, fields)
 
     with tabs[len(fields_by_tab)]:
         st.subheader("Case Documents")
-        st.caption("Attachments are saved to persistent server storage and linked to this case. Synthetic files only; maximum 10 MB per file.")
+        st.caption("Attachments are saved locally and linked to this case. Synthetic files only; maximum 10 MB per file.")
         with st.form(f"upload_documents_{case_id}"):
             uploads = st.file_uploader("Attach documents (PDF, Word, Excel, or image)", type=sorted(ALLOWED_EXTENSIONS), accept_multiple_files=True)
             category = st.selectbox("Document category", DOC_CATEGORIES)
@@ -231,10 +251,9 @@ def render_processing() -> None:
                         except Exception as exc:
                             st.error(f"Could not save {upload.name}: {exc}")
                 if saved:
-                    st.success(f"Saved {saved} document(s) persistently.")
+                    st.success(f"Saved {saved} document(s).")
                     st.rerun()
-        documents = storage.list_documents(case_id)
-        for document in documents:
+        for document in storage.list_documents(case_id):
             with st.expander(f"{document['name']} · {document['category']} · v{document['current_version']}"):
                 st.write(document["description"] or "No description")
                 path = Path(document["stored_path"])
@@ -247,28 +266,17 @@ def render_processing() -> None:
                     st.error("Stored document file is missing. Restore it from backup.")
 
     with tabs[len(fields_by_tab) + 1]:
-        st.subheader("Laboratory Information")
-        with st.form(f"laboratory_{case_id}"):
-            lab_fields = ["Test Name", "Test Date", "Test Result", "Unit", "Reference Range", "Abnormal Indicator", "Comments"]
-            values = {field: st.text_input(field, value=str(data.get(field, "")), key=f"lab_{case_id}_{field}") for field in lab_fields}
-            if st.form_submit_button("Save Laboratory Information"):
-                save_section(case_id, "Laboratory", values)
+        render_section_form(case_id, data, "Laboratory", ["Test Name", "Test Date", "Test Result", "Unit", "Reference Range", "Abnormal Indicator", "Comments"])
 
     with tabs[len(fields_by_tab) + 2]:
-        st.subheader("Literature Information")
-        with st.form(f"literature_{case_id}"):
-            lit_fields = ["Article Title", "Authors", "Journal", "DOI", "Publication Year", "PMID", "Literature Reference", "Literature Assessment"]
-            values = {field: st.text_input(field, value=str(data.get(field, "")), key=f"literature_{case_id}_{field}") for field in lit_fields}
-            if st.form_submit_button("Save Literature Information"):
-                save_section(case_id, "Literature", values)
+        render_section_form(case_id, data, "Literature", ["Article Title", "Authors", "Journal", "DOI", "Publication Year", "PMID", "Literature Reference", "Literature Assessment"])
 
     st.divider()
     st.subheader("Workflow Handover")
     current_stage = case["stage"]
     st.write(f"Current stage: **{current_stage}**")
     if current_stage != "Completed":
-        current_index = STAGES.index(current_stage)
-        next_stage = STAGES[current_index + 1]
+        next_stage = STAGES[STAGES.index(current_stage) + 1]
         if current_stage in ("Quality Control Review", "Medical Review"):
             decision = st.selectbox("Review decision", ["Select decision", "Pass", "Return for Rework"], key=f"review_decision_{case_id}")
         else:
@@ -284,7 +292,7 @@ def render_processing() -> None:
                 action = "Return for Rework" if decision == "Return for Rework" else "Pass"
                 try:
                     storage.transition_case(case_id, destination, action, comments, current_user())
-                    st.success(f"Case moved to {destination}; saved persistently.")
+                    st.success(f"Case moved to {destination}.")
                     st.rerun()
                 except ValueError as exc:
                     st.error(str(exc))
@@ -299,8 +307,7 @@ def render_processing() -> None:
 
 def render_queue() -> None:
     st.header("Case Queue")
-    query = st.text_input("Search by case ID, WWUID, product, or event")
-    cases = get_cases(query)
+    cases = get_cases(st.text_input("Search by case ID, WWUID, product, or event"))
     if not cases:
         st.info("No matching cases.")
         return
@@ -345,7 +352,7 @@ def main() -> None:
         st.selectbox("Demo role (not authentication)", ROLES, key="demo_role")
         st.caption("Demo role selection is not a security control.")
     st.title("🧬 PV CASE LAB")
-    st.caption("Training simulation · Synthetic data only · SQLite persistence enabled")
+    st.caption("Single-user local training simulation · Synthetic data only")
     if page == "Dashboard":
         render_dashboard()
     elif page == "Case Intake":
