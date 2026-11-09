@@ -1,4 +1,4 @@
-"""Focused persistence tests for the coding workspaces."""
+"""Focused persistence and dictionary suggestion tests."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,12 +22,26 @@ class CodingStorageTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_import_and_search_meddra_csv(self):
-        csv_data = b"llt,llT_code,pt,pt_code,hlt,hlgt,soc,primary_soc,version\nTraining event,99999999,Training PT,99999999,HLT,HLGT,SOC,Yes,Training fixture\n"
-        count = pv_coding.import_dictionary_csv(pv_coding.MEDDRA, csv_data, "Test user", True)
-        self.assertEqual(count, 1)
+        csv_data = b"llt,llt_code,pt,pt_code,hlt,hlgt,soc,primary_soc,version\nTraining event,99999999,Training PT,99999999,HLT,HLGT,SOC,Yes,Training fixture\n"
+        self.assertEqual(pv_coding.import_dictionary_csv(pv_coding.MEDDRA, csv_data, "Test user", True), 1)
         found = pv_coding.search_dictionary(pv_coding.MEDDRA, "Training event")
         self.assertEqual(found[0]["record"]["term"], "Training event")
         self.assertEqual(found[0]["record"]["code"], "99999999")
+
+    def test_exact_meddra_suggestion_is_case_and_whitespace_insensitive(self):
+        csv_data = b"llt,llt_code,pt\nHeadache,123,Headache\n"
+        pv_coding.import_dictionary_csv(pv_coding.MEDDRA, csv_data, "Test user", True)
+        matches = pv_coding.exact_dictionary_matches(pv_coding.MEDDRA, "  HEADACHE  ")
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["code"], "123")
+        self.assertEqual(pv_coding.exact_dictionary_matches(pv_coding.MEDDRA, "head"), [])
+
+    def test_exact_whodrug_suggestion_comes_from_imported_record(self):
+        csv_data = b"preferred_name,drug_code,active_ingredient\nTraining medicine,TRAINING-1,Example ingredient\n"
+        pv_coding.import_dictionary_csv(pv_coding.WHODRUG, csv_data, "Test user", True)
+        matches = pv_coding.exact_dictionary_matches(pv_coding.WHODRUG, "Training medicine")
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["record"]["code"], "TRAINING-1")
 
     def test_import_requires_authorization(self):
         data = b"preferred_name,drug_code\nExample,TRAINING-1\n"
@@ -46,9 +60,8 @@ class CodingStorageTests(unittest.TestCase):
             pv_coding.save_coding(self.case_id, pv_coding.WHODRUG, "product-1", "Example", {}, "Reviewed", "Coder")
 
     def test_csv_rows_require_term_and_code(self):
-        data = b"llt,llt_code\nTraining event,\n"
         with self.assertRaises(ValueError):
-            pv_coding.import_dictionary_csv(pv_coding.MEDDRA, data, "Test user", True)
+            pv_coding.import_dictionary_csv(pv_coding.MEDDRA, b"llt,llt_code\nTraining event,\n", "Test user", True)
 
 
 if __name__ == "__main__":

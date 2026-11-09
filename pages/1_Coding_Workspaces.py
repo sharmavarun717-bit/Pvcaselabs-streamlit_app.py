@@ -1,7 +1,6 @@
 """MedDRA event and WHODrug product training workspaces."""
 from __future__ import annotations
 
-import json
 import uuid
 
 import pandas as pd
@@ -12,7 +11,6 @@ import pv_storage as storage
 
 storage.init_db()
 coding.initialize()
-
 ROLES = ["System Administrator", "PV Manager", "Intake User", "Triage User", "Data Entry User", "QC Reviewer", "Medical Reviewer", "Submission User", "Student", "Faculty/Trainer"]
 
 
@@ -20,47 +18,35 @@ def user_name() -> str:
     return f"Demo {st.session_state.get('demo_role', 'Student')}"
 
 
-def _target_value(target: dict, keys: tuple[str, ...]) -> str:
-    for key in keys:
-        if target.get(key):
-            return str(target[key])
-    return ""
-
-
 def get_targets(case_id: str, kind: str) -> list[dict]:
     case = storage.get_case(case_id)
     data = case["data"]
-    key = "events" if kind == coding.MEDDRA else "products"
-    targets = data.get(key, [])
+    storage_key = "events" if kind == coding.MEDDRA else "products"
+    targets = data.get(storage_key, [])
     if not targets:
-        # Seed one editable training target from older single-record case fields,
-        # or create an empty target so coding practice can start immediately.
-        if kind == coding.MEDDRA:
-            initial = {"Reported verbatim term": data.get("Reported verbatim term", data.get("Verbatim Event", ""))}
-        else:
-            initial = {"Reported product name": data.get("Reported product name", data.get("Product Name", ""))}
-        targets = [initial]
-        data[key] = targets
+        seed = {"Reported verbatim term": data.get("Reported verbatim term", data.get("Verbatim Event", ""))} if kind == coding.MEDDRA else {"Reported product name": data.get("Reported product name", data.get("Product Name", ""))}
+        targets = [seed]
     changed = False
     for target in targets:
         if not target.get("_record_id"):
             target["_record_id"] = str(uuid.uuid4())
             changed = True
-    if changed or key not in data:
-        data[key] = targets
+    if changed or storage_key not in data:
+        data[storage_key] = targets
         storage.update_case(case_id, data, user_name(), f"{kind} coding target initialized")
     return targets
 
 
 def target_label(target: dict, index: int, kind: str) -> str:
-    term = _target_value(target, ("Reported verbatim term", "Verbatim Event", "Reported product name", "Product Name"))
-    return f"{index + 1}. {term or 'Untitled training record'}"
+    keys = ("Reported verbatim term", "Verbatim Event") if kind == coding.MEDDRA else ("Reported product name", "Product Name")
+    text = next((str(target[k]) for k in keys if target.get(k)), "Untitled training record")
+    return f"{index + 1}. {text}"
 
 
 def render_dictionary_upload(dictionary_type: str) -> None:
     label = "MedDRA" if dictionary_type == coding.MEDDRA else "WHODrug"
     with st.expander(f"Import authorized {label} CSV", expanded=False):
-        st.warning("Only upload dictionary data you are authorized to use. No official dictionary is bundled. Imported records are user-provided training references; the app does not verify licensing, authenticity, or official status.")
+        st.warning("Import only dictionary data you are authorized to use. The app does not verify licensing or official status and does not bundle official dictionaries.")
         uploaded = st.file_uploader("UTF-8 CSV dictionary file", type=["csv"], key=f"dict_upload_{dictionary_type}")
         confirmed = st.checkbox("I am authorized to use and import these dictionary data", key=f"dict_auth_{dictionary_type}")
         if st.button(f"Import {label} records", key=f"dict_import_{dictionary_type}"):
@@ -69,114 +55,126 @@ def render_dictionary_upload(dictionary_type: str) -> None:
             else:
                 try:
                     count = coding.import_dictionary_csv(dictionary_type, uploaded.getvalue(), user_name(), confirmed)
-                    st.success(f"Imported {count} {label} records.")
+                    st.success(f"Imported {count} records for {label}.")
                 except ValueError as exc:
                     st.error(str(exc))
 
 
 def meddra_fields(record: dict) -> dict:
-    return {
-        "LLT": record.get("term", ""),
-        "LLT code": record.get("code", ""),
-        "PT": record.get("pt", ""),
-        "PT code": record.get("pt_code", ""),
-        "HLT": record.get("hlt", ""),
-        "HLGT": record.get("hlgt", ""),
-        "SOC": record.get("soc", ""),
-        "Primary SOC": record.get("primary_soc", ""),
-        "MedDRA version": record.get("version", ""),
-    }
+    return {"LLT": record.get("term", ""), "LLT code": record.get("code", ""), "PT": record.get("pt", ""), "PT code": record.get("pt_code", ""), "HLT": record.get("hlt", ""), "HLGT": record.get("hlgt", ""), "SOC": record.get("soc", ""), "Primary SOC": record.get("primary_soc", ""), "MedDRA version": record.get("version", "")}
 
 
 def whodrug_fields(record: dict) -> dict:
-    return {
-        "WHODrug preferred name": record.get("term", ""),
-        "Drug code": record.get("code", ""),
-        "Active ingredient": record.get("active_ingredient", ""),
-        "ATC code": record.get("atc_code", ""),
-        "Drug record number": record.get("drug_record_number", ""),
-        "Strength": record.get("strength", ""),
-        "Pharmaceutical form": record.get("pharmaceutical_form", ""),
-        "Manufacturer": record.get("manufacturer", ""),
-        "Product country": record.get("country", ""),
-        "WHODrug version": record.get("version", ""),
-    }
+    return {"WHODrug preferred name": record.get("term", ""), "Drug code": record.get("code", ""), "Active ingredient": record.get("active_ingredient", ""), "ATC code": record.get("atc_code", ""), "Drug record number": record.get("drug_record_number", ""), "Strength": record.get("strength", ""), "Pharmaceutical form": record.get("pharmaceutical_form", ""), "Manufacturer": record.get("manufacturer", ""), "Product country": record.get("country", ""), "WHODrug version": record.get("version", "")}
 
 
 def render_workspace(dictionary_type: str) -> None:
     is_meddra = dictionary_type == coding.MEDDRA
     title = "MedDRA Event Coding" if is_meddra else "WHODrug Product Coding"
+    target_name = "event" if is_meddra else "product"
     st.header(title)
-    st.caption("Dictionary-assisted training when your organization provides authorized records, or clearly labelled manual practice. No terms/codes are fabricated by this app.")
+    st.caption("Automatic exact-match suggestions come only from imported records. Applying a suggestion pre-fills the coding form; you must review and save it. No codes or dictionary terms are generated by the app.")
     render_dictionary_upload(dictionary_type)
     cases = storage.get_cases()
     if not cases:
         st.info("Create a synthetic case in the main PV Case Lab app first.")
         return
+
     case_id = st.selectbox("Case", [case["case_id"] for case in cases], key=f"coding_case_{dictionary_type}")
     targets = get_targets(case_id, dictionary_type)
-    target_idx = st.selectbox(
-        "Event record" if is_meddra else "Product record",
-        range(len(targets)),
-        format_func=lambda i: target_label(targets[i], i, dictionary_type),
-        key=f"coding_target_{dictionary_type}_{case_id}",
-    )
-    target = targets[target_idx]
+    target_index = st.selectbox(target_name.title() + " record", range(len(targets)), format_func=lambda i: target_label(targets[i], i, dictionary_type), key=f"coding_target_{dictionary_type}_{case_id}")
+    target = targets[target_index]
     target_id = target["_record_id"]
-    term_key = "Reported verbatim term" if is_meddra else "Reported product name"
-    reported_term = st.text_input("Reported verbatim term" if is_meddra else "Reported product name", value=_target_value(target, (term_key, "Verbatim Event", "Product Name")), key=f"reported_{dictionary_type}_{case_id}_{target_id}")
+    term_field = "Reported verbatim term" if is_meddra else "Reported product name"
+    reported_term = st.text_input(term_field, value=str(target.get(term_field, "")), key=f"reported_{dictionary_type}_{case_id}_{target_id}")
+
+    exact_matches = coding.exact_dictionary_matches(dictionary_type, reported_term)
+    selected_key = f"applied_exact_{dictionary_type}_{case_id}_{target_id}"
+    applied_id = st.session_state.get(selected_key)
+    active_exact = next((match for match in exact_matches if str(match["id"]) == str(applied_id)), None)
+    if exact_matches:
+        st.success(f"Found {len(exact_matches)} exact dictionary match(es) for the entered {target_name} term.")
+        exact_labels = [f"{m['search_term']} | {m['code']} | version {m['version'] or 'unspecified'}" for m in exact_matches]
+        exact_choice = st.selectbox("Exact-match suggestion (from imported dictionary)", range(len(exact_matches)), format_func=lambda i: exact_labels[i], key=f"exact_choice_{dictionary_type}_{case_id}_{target_id}")
+        exact_match = exact_matches[exact_choice]
+        st.caption("This is a dictionary-based training suggestion, not a final coding decision.")
+        if st.button("Apply exact-match suggestion to form", key=f"apply_exact_{dictionary_type}_{case_id}_{target_id}"):
+            st.session_state[selected_key] = exact_match["id"]
+            st.rerun()
+        if active_exact:
+            st.info(f"Suggestion applied: {active_exact['search_term']} ({active_exact['code']}). Review the hierarchy/details and save to confirm this training selection.")
+    else:
+        st.info("No exact imported-record match. Search suggestions below or enter a manual training entry; any manual entry is marked not dictionary-verified.")
 
     st.subheader("Search imported dictionary records")
     query = st.text_input("Search by reported term, preferred term, or code", value=reported_term, key=f"dict_search_{dictionary_type}_{case_id}_{target_id}")
     results = coding.search_dictionary(dictionary_type, query)
-    selected_record = None
+    selected_record = active_exact["record"] if active_exact else None
+    selected_source = "Exact imported dictionary match" if active_exact else "Manual training entry; not verified"
     if results:
         labels = [f"{r['search_term']} | {r['code']} | v{r['version'] or 'unspecified'}" for r in results]
-        selected_idx = st.selectbox("Matching imported records", range(len(results)), format_func=lambda i: labels[i], key=f"dict_choice_{dictionary_type}_{case_id}_{target_id}")
-        selected_record = results[selected_idx]["record"]
-        st.caption(f"Record source: {results[selected_idx]['source']}. Selection is not independent verification of dictionary authenticity or licensing.")
+        search_index = st.selectbox("Other matching records", range(len(results)), format_func=lambda i: labels[i], key=f"dict_choice_{dictionary_type}_{case_id}_{target_id}")
+        search_record = results[search_index]["record"]
+        if st.button("Use selected search result", key=f"apply_search_{dictionary_type}_{case_id}_{target_id}"):
+            selected_record = search_record
+            selected_source = "User-selected imported dictionary result"
+            st.session_state[f"manual_selected_{dictionary_type}_{case_id}_{target_id}"] = results[search_index]["id"]
+            st.rerun()
+        manual_id = st.session_state.get(f"manual_selected_{dictionary_type}_{case_id}_{target_id}")
+        active_manual = next((r for r in results if str(r["id"]) == str(manual_id)), None)
+        if active_manual and not active_exact:
+            selected_record = active_manual["record"]
+            selected_source = "User-selected imported dictionary result"
     elif len(query.strip()) >= 2:
-        st.info("No matching imported record found. You can still enter a clearly labelled manual training code below.")
-    else:
-        st.caption("Enter at least two characters to search imported records.")
+        st.caption("No partial search results found.")
 
-    initial = (meddra_fields(selected_record) if is_meddra and selected_record else whodrug_fields(selected_record) if selected_record else {})
     prior = coding.get_coding(case_id, dictionary_type, target_id)
-    if prior:
-        initial = {**prior["coded_record"], **initial}
-        # A saved choice/manual edit should remain visible until the user applies a new dictionary selection.
-        if not selected_record:
-            initial = prior["coded_record"]
-    fields = list(meddra_fields({}).keys()) if is_meddra else list(whodrug_fields({}).keys())
+    if selected_record:
+        initial = meddra_fields(selected_record) if is_meddra else whodrug_fields(selected_record)
+    elif prior:
+        initial = prior["coded_record"]
+    else:
+        initial = {}
+    fields = list(meddra_fields({})) if is_meddra else list(whodrug_fields({}))
+    selection_id = str(active_exact["id"]) if active_exact else str(st.session_state.get(f"manual_selected_{dictionary_type}_{case_id}_{target_id}", "manual"))
     with st.form(f"save_coding_{dictionary_type}_{case_id}_{target_id}"):
-        values = {field: st.text_input(field, value=str(initial.get(field, "")), key=f"coding_field_{dictionary_type}_{field}_{target_id}") for field in fields}
-        status_options = ["Pending", "Training entry - not dictionary verified", "Dictionary selection - training only", "Reviewed"]
-        default_status = prior["coding_status"] if prior and prior["coding_status"] in status_options else ("Dictionary selection - training only" if selected_record else "Training entry - not dictionary verified")
+        values = {field: st.text_input(field, value=str(initial.get(field, "")), key=f"coding_value_{dictionary_type}_{field}_{target_id}_{selection_id}") for field in fields}
+        status_options = ["Pending", "Training entry - not dictionary verified", "Dictionary suggestion - awaiting confirmation", "Dictionary selection - training only", "Reviewed"]
+        if selected_record:
+            default_status = "Dictionary suggestion - awaiting confirmation" if active_exact else "Dictionary selection - training only"
+        else:
+            default_status = "Training entry - not dictionary verified"
+        if prior and prior["coding_status"] in status_options and not selected_record:
+            default_status = prior["coding_status"]
         status = st.selectbox("Coding status", status_options, index=status_options.index(default_status))
         reviewer = st.text_input("Reviewer", value=prior["reviewer"] if prior else "")
         comments = st.text_area("Coding comments", value=prior["comments"] if prior else "")
-        submitted = st.form_submit_button("Save coding", type="primary")
+        submitted = st.form_submit_button("Save / confirm coding", type="primary")
+
     if submitted:
         if not reported_term.strip():
             st.error("Enter the reported term before saving coding.")
         elif status == "Reviewed" and not reviewer.strip():
             st.error("Enter a reviewer before marking the coding as Reviewed.")
         else:
-            # Keep source record and imported dictionary identity alongside the captured hierarchy.
-            coded_values = {**values, "dictionary_source": "Imported user-provided CSV" if selected_record else "Manual training entry; not verified", "dictionary_type": dictionary_type}
+            coded_values = {**values, "dictionary_source": selected_source, "dictionary_type": dictionary_type}
             if selected_record:
                 coded_values["dictionary_record"] = selected_record
             coding.save_coding(case_id, dictionary_type, target_id, reported_term, coded_values, status, user_name(), reviewer, comments)
-            target[term_key] = reported_term.strip()
-            storage.update_case(case_id, storage.get_case(case_id)["data"], user_name(), f"{dictionary_type} coding target updated")
-            st.success("Coding saved with a training-only status. Imported data are not represented as independently verified official coding.")
+            target[term_field] = reported_term.strip()
+            storage_case = storage.get_case(case_id)
+            case_data = storage_case["data"]
+            case_data["events" if is_meddra else "products"] = targets
+            storage.update_case(case_id, case_data, user_name(), f"{dictionary_type} coding target updated")
+            st.success("Coding saved. Exact-match suggestions remain training-only and require human review.")
             st.rerun()
+
     history = coding.get_history(case_id, dictionary_type, target_id)
     if history:
         st.subheader("Coding history")
         rows = [{"Action": h["action"], "User": h["user_name"], "Timestamp": h["timestamp"], "Status": h["snapshot"].get("coding_status", ""), "Term": h["snapshot"].get("reported_term", "")} for h in history]
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    st.caption("Use only authorized data. Manual training records are not official dictionary matches. Review coding using your organization’s licensed dictionary and procedures.")
+    st.caption("Use authorized dictionary data only. Suggestions are based on imported records; review the selection before use. This is a training tool, not a validated production coding system.")
 
 
 def main() -> None:

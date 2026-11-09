@@ -95,6 +95,10 @@ def _normal_header(value: str) -> str:
     return " ".join(value.strip().lower().replace("-", " ").replace("_", " ").split())
 
 
+def _normal_term(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
 def _row_value(row: dict[str, str], aliases: tuple[str, ...]) -> str:
     normalized = {_normal_header(key): (value or "").strip() for key, value in row.items()}
     for alias in aliases:
@@ -161,12 +165,38 @@ def search_dictionary(dictionary_type: str, query: str, limit: int = 50) -> list
     return [{**dict(row), "record": json.loads(row["record_json"])} for row in rows]
 
 
+def exact_dictionary_matches(dictionary_type: str, query: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Return exact, case-insensitive term matches from imported records only.
+
+    This is an automatic suggestion, not an automatic coding decision. The UI
+    must require the user to apply and save a candidate.
+    """
+    initialize()
+    if dictionary_type not in (MEDDRA, WHODRUG):
+        raise ValueError("Unknown dictionary type")
+    normalized_query = _normal_term(query.strip())
+    if len(normalized_query) < 2:
+        return []
+    with storage.connect() as db:
+        rows = db.execute(
+            "SELECT id, search_term, code, version, record_json, source FROM coding_dictionary WHERE dictionary_type=? ORDER BY search_term LIMIT 10000",
+            (dictionary_type,),
+        ).fetchall()
+    matches = []
+    for row in rows:
+        if _normal_term(row["search_term"]) == normalized_query:
+            matches.append({**dict(row), "record": json.loads(row["record_json"])})
+            if len(matches) >= max(1, min(limit, 200)):
+                break
+    return matches
+
+
 def save_coding(case_id: str, coding_type: str, target_id: str,
                 reported_term: str, coded_record: dict[str, Any], status: str,
                 coder: str, reviewer: str = "", comments: str = "") -> None:
     if coding_type not in (MEDDRA, WHODRUG):
         raise ValueError("Unknown coding type")
-    if status not in ("Pending", "Training entry - not dictionary verified", "Dictionary selection - training only", "Reviewed"):
+    if status not in ("Pending", "Training entry - not dictionary verified", "Dictionary suggestion - awaiting confirmation", "Dictionary selection - training only", "Reviewed"):
         raise ValueError("Invalid coding status")
     if status == "Reviewed" and not reviewer.strip():
         raise ValueError("A reviewer is required to mark coding as reviewed")
