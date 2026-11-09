@@ -1,4 +1,3 @@
-
 import streamlit as st
 from datetime import datetime, date
 import uuid
@@ -27,6 +26,7 @@ STAGES = [
     "Completed"
 ]
 
+
 def log_action(case_id, action):
     st.session_state.audit.append({
         "Case ID": case_id,
@@ -35,18 +35,21 @@ def log_action(case_id, action):
         "Timestamp": datetime.now().strftime("%d-%m-%Y %H:%M:%S")
     })
 
+
 def create_case():
     case_id = "PV-" + datetime.now().strftime("%Y%m%d") + "-" + str(uuid.uuid4())[:6].upper()
     st.session_state.cases[case_id] = {
         "stage": "Intake",
         "status": "In Progress",
         "data": {},
+        "documents": [],
         "comments": [],
         "history": ["Case created"],
         "created": datetime.now().strftime("%d-%m-%Y %H:%M")
     }
     log_action(case_id, "Case created")
     return case_id
+
 
 # ---------------- HEADER ----------------
 
@@ -187,12 +190,6 @@ elif page == "ICSR Data Entry":
         case = st.session_state.cases[cid]
         st.write("Current workflow:", f"**{case['stage']}**")
 
-        tabs = st.tabs([
-            "General", "Source", "Reporter", "Patient",
-            "Clinical Trial", "Product", "Event",
-            "Lab Tests", "Causality", "Literature", "Narrative"
-        ])
-
         fields = {
             "General": [
                 "Case Type", "Initial / Follow-up", "Awareness Date",
@@ -214,72 +211,47 @@ elif page == "ICSR Data Entry":
                 "Study ID", "Protocol Number",
                 "Study Site", "Investigator"
             ],
-           "Product": [
-    "Product Name",
-    "Active Ingredient",
-    "Product Classification",
-    "Dosage",
-    "Route",
-    "Frequency",
-    "Indication",
-    "Reported Indication",
-    "MedDRA Indication Coded Term",
-    "MedDRA Indication Code",
-    "Indication Coding Status",
-    "Indication Dictionary Version",
-    "WHODrug Preferred Name",
-    "WHODrug Drug Code",
-    "ATC Code",
-    "Strength",
-    "Dosage Form",
-    "WHODrug Version",
-    "Product Coding Status",
-    "Batch Number",
-    "Therapy Start Date",
-    "Therapy Stop Date",
-    "Dechallenge",
-    "Rechallenge"
-],
-           "Event": [
-    "Verbatim Event",
-    "MedDRA LLT",
-    "MedDRA LLT Code",
-    "MedDRA PT",
-    "MedDRA PT Code",
-    "MedDRA HLT",
-    "MedDRA HLGT",
-    "MedDRA SOC",
-    "Primary SOC",
-    "MedDRA Version",
-    "Event Coding Status",
-    "Coding Comments",
-    "Event Onset Date",
-    "Event Outcome",
-    "Seriousness Criteria"
-],
+            "Product": [
+                "Product Name", "Active Ingredient", "Product Classification",
+                "Dosage", "Route", "Frequency", "Indication",
+                "Reported Indication", "MedDRA Indication Coded Term",
+                "MedDRA Indication Code", "Indication Coding Status",
+                "Indication Dictionary Version", "WHODrug Preferred Name",
+                "WHODrug Drug Code", "ATC Code", "Strength", "Dosage Form",
+                "WHODrug Version", "Product Coding Status", "Batch Number",
+                "Therapy Start Date", "Therapy Stop Date", "Dechallenge",
+                "Rechallenge"
+            ],
+            "Event": [
+                "Verbatim Event", "MedDRA LLT", "MedDRA LLT Code",
+                "MedDRA PT", "MedDRA PT Code", "MedDRA HLT", "MedDRA HLGT",
+                "MedDRA SOC", "Primary SOC", "MedDRA Version",
+                "Event Coding Status", "Coding Comments", "Event Onset Date",
+                "Event Outcome", "Seriousness Criteria"
+            ],
             "Lab Tests": [
-                "Test Name", "Test Result",
-                "Unit", "Reference Range"
+                "Test Name", "Test Result", "Unit", "Reference Range"
             ],
             "Causality": [
                 "WHO-UMC Category", "Assessment Rationale"
             ],
             "Literature": [
-                "Article Title", "Authors",
-                "Journal", "DOI", "Publication Year"
+                "Article Title", "Authors", "Journal", "DOI", "Publication Year"
             ],
             "Narrative": [
                 "Structured Case Narrative"
             ]
         }
 
-        for tab, name in zip(tabs, fields.keys()):
+        tabs = st.tabs(list(fields.keys()) + ["Documents"])
+
+        for tab, (name, field_names) in zip(tabs[:-1], fields.items()):
             with tab:
                 st.subheader(name + " Information")
 
                 with st.form("form_" + name):
                     values = {}
-                    for field in fields[name]:
+                    for field in field_names:
                         if field == "WHO-UMC Category":
                             values[field] = st.selectbox(
                                 field,
@@ -299,6 +271,68 @@ elif page == "ICSR Data Entry":
                         log_action(cid, name + " information saved")
                         st.success(name + " information saved.")
 
+        # ---------------- CASE DOCUMENTS ----------------
+
+        with tabs[-1]:
+            st.subheader("Case Documents")
+            st.caption(
+                "Attach supporting training documents to this case. "
+                "Files are kept in this Streamlit session and are not stored permanently."
+            )
+
+            uploaded_files = st.file_uploader(
+                "Choose documents",
+                type=["pdf", "doc", "docx", "jpg", "jpeg", "png", "txt", "csv", "xlsx"],
+                accept_multiple_files=True,
+                key=f"documents_uploader_{cid}"
+            )
+
+            if st.button("Add Documents", key=f"add_documents_{cid}"):
+                if not uploaded_files:
+                    st.warning("Choose at least one document to add.")
+                else:
+                    documents = case.setdefault("documents", [])
+                    existing_names = {document["name"] for document in documents}
+                    added_count = 0
+
+                    for uploaded_file in uploaded_files:
+                        if uploaded_file.size > 10 * 1024 * 1024:
+                            st.error(f"{uploaded_file.name} exceeds the 10 MB per-file limit.")
+                        elif uploaded_file.name in existing_names:
+                            st.warning(f"{uploaded_file.name} is already attached to this case.")
+                        else:
+                            documents.append({
+                                "name": uploaded_file.name,
+                                "type": uploaded_file.type or "application/octet-stream",
+                                "size": uploaded_file.size,
+                                "content": uploaded_file.getvalue(),
+                                "uploaded": datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                            })
+                            existing_names.add(uploaded_file.name)
+                            added_count += 1
+
+                    if added_count:
+                        log_action(cid, f"{added_count} document(s) attached")
+                        st.success(f"Added {added_count} document(s) to {cid}.")
+
+            documents = case.setdefault("documents", [])
+            if documents:
+                st.markdown("#### Attached documents")
+                for index, document in enumerate(documents):
+                    col_name, col_info, col_download = st.columns([3, 2, 1])
+                    col_name.write(f"**{document['name']}**")
+                    col_info.caption(
+                        f"{document['size'] / 1024:.1f} KB · Uploaded {document['uploaded']}"
+                    )
+                    col_download.download_button(
+                        "Download",
+                        data=document["content"],
+                        file_name=document["name"],
+                        mime=document["type"],
+                        key=f"download_document_{cid}_{index}"
+                    )
+            else:
+                st.info("No documents have been attached to this case yet.")
 
         # ---------------- SUBMIT TO NEXT WORKFLOW ----------------
 
@@ -309,105 +343,59 @@ elif page == "ICSR Data Entry":
         st.write("Current Stage:", f"**{current}**")
 
         if current != "Completed":
-
             next_stage = STAGES[STAGES.index(current) + 1]
-
             decision = "Pass to Next Stage"
 
             if current == "Quality Review":
                 decision = st.selectbox(
                     "QC Decision",
-                    [
-                        "Select decision",
-                        "Pass to Medical Review",
-                        "Return for Rework"
-                    ],
+                    ["Select decision", "Pass to Medical Review", "Return for Rework"],
                     key=f"qc_decision_{cid}"
                 )
-
             elif current == "Medical Review":
                 decision = st.selectbox(
                     "Medical Decision",
-                    [
-                        "Select decision",
-                        "Pass to Submission",
-                        "Return for Rework"
-                    ],
+                    ["Select decision", "Pass to Submission", "Return for Rework"],
                     key=f"medical_decision_{cid}"
                 )
 
-            # Show only the submit button initially
             submit_key = f"show_submit_{cid}"
 
-            if st.button(
-                "Submit to Next Workflow",
-                key=f"open_submit_{cid}"
-            ):
+            if st.button("Submit to Next Workflow", key=f"open_submit_{cid}"):
                 st.session_state[submit_key] = True
 
-            # Display comments only after clicking Submit
             if st.session_state.get(submit_key, False):
-
                 comment = st.text_area(
                     "Submit Comments (Mandatory)",
                     key=f"submit_comment_{cid}"
                 )
 
-                if st.button(
-                    "Confirm Submit",
-                    key=f"confirm_submit_{cid}"
-                ):
+                if st.button("Confirm Submit", key=f"confirm_submit_{cid}"):
+                    if not comment.strip():
+                        st.error("Please enter submission comments.")
+                    elif current in ["Quality Review", "Medical Review"] and decision == "Select decision":
+                        st.error("Please select a review decision first.")
+                    else:
+                        case.setdefault("comments", []).append(comment)
 
-                        if not comment.strip():
-                            st.error("Please enter submission comments.")
-                        
-                        elif current in ["Quality Review", "Medical Review"] and decision == "Select decision":
-                            st.error("Please select a review decision first.")
-    
-                        else:
-                            case.setdefault("comments", []).append(comment)
-    
-                            if decision == "Return for Rework":
-    
-                                case["stage"] = "Data Entry"
-                                case["status"] = "Returned for Rework"
-    
-                                case["history"].append(
-                                    f"{current}: Returned to Data Entry. Comment: {comment}"
-                                )
-    
-                                log_action(
-                                    cid,
-                                    f"{current}: Returned for rework. Comment: {comment}"
-                                )
-    
-                            else:
-    
-                                case["stage"] = next_stage
-    
-                                case["status"] = (
-                                    "Completed"
-                                    if next_stage == "Completed"
-                                    else "In Progress"
-                                )
-    
-                                case["history"].append(
-                                    f"Submitted from {current} to {next_stage}. Comment: {comment}"
-                                )
-    
-                                log_action(
-                                    cid,
-                                    f"Submitted from {current} to {next_stage}. Comment: {comment}"
-                                )
-    
-                            st.session_state[submit_key] = False
-    
-                            st.success(
-                                f"Case successfully submitted to {case['stage']}!"
+                        if decision == "Return for Rework":
+                            case["stage"] = "Data Entry"
+                            case["status"] = "Returned for Rework"
+                            case["history"].append(
+                                f"{current}: Returned to Data Entry. Comment: {comment}"
                             )
-    
-                            st.rerun()
+                            log_action(cid, f"{current}: Returned for rework. Comment: {comment}")
+                        else:
+                            case["stage"] = next_stage
+                            case["status"] = "Completed" if next_stage == "Completed" else "In Progress"
+                            case["history"].append(
+                                f"Submitted from {current} to {next_stage}. Comment: {comment}"
+                            )
+                            log_action(cid, f"Submitted from {current} to {next_stage}. Comment: {comment}")
 
+                        st.session_state[submit_key] = False
+                        st.success(f"Case successfully submitted to {case['stage']}!")
+                        st.rerun()
         else:
             st.success("This case is completed.")
 
@@ -427,10 +415,7 @@ elif page == "Audit Log":
     st.header("Audit Trail")
 
     if st.session_state.audit:
-        st.dataframe(
-            st.session_state.audit,
-            use_container_width=True
-        )
+        st.dataframe(st.session_state.audit, use_container_width=True)
     else:
         st.info("No audit activity yet.")
 
