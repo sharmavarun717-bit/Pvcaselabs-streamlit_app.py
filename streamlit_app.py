@@ -55,11 +55,37 @@ st.caption("Pharmacovigilance Case Processing & Training Simulation")
 
 with st.sidebar:
     st.title("PV Case Lab")
-    page = st.radio(
+        page = st.radio(
         "Navigation",
-        ["Dashboard", "Create Case", "Case Queue",
-         "ICSR Data Entry", "Workflow History", "Audit Log"]
+        [
+            "Dashboard",
+            "Create Case",
+            "Case Queue",
+            "ICSR Case Processing",
+            "Workflow History",
+            "Audit Log"
+        ]
     )
+
+    selected_stage = None
+
+    if page == "ICSR Case Processing":
+        with st.expander("Select Workflow", expanded=True):
+            selected_stage = st.radio(
+                "Workflow Stages",
+                [
+                    "Intake",
+                    "Triage",
+                    "Data Entry",
+                    "Quality Review",
+                    "Medical Review",
+                    "Submission",
+                    "Completed"
+                ],
+                key="workflow_stage"
+            )
+
+        page = "ICSR Data Entry"
 
     st.divider()
     st.caption("Educational simulation using fictional training data.")
@@ -273,65 +299,114 @@ elif page == "ICSR Data Entry":
                         log_action(cid, name + " information saved")
                         st.success(name + " information saved.")
 
-# ---------------- WORKFLOW HANDOVER ----------------
+
+        # ---------------- SUBMIT TO NEXT WORKFLOW ----------------
 
         st.divider()
-        st.subheader("Workflow Handover")
+        st.subheader("Submit to Next Workflow")
 
         current = case["stage"]
         st.write("Current Stage:", f"**{current}**")
 
         if current != "Completed":
+
             next_stage = STAGES[STAGES.index(current) + 1]
+
+            decision = "Pass to Next Stage"
 
             if current == "Quality Review":
                 decision = st.selectbox(
                     "QC Decision",
-                    ["Select decision", "Pass to Medical Review",
-                     "Return for Rework"]
+                    [
+                        "Select decision",
+                        "Pass to Medical Review",
+                        "Return for Rework"
+                    ],
+                    key=f"qc_decision_{cid}"
                 )
+
             elif current == "Medical Review":
                 decision = st.selectbox(
                     "Medical Decision",
-                    ["Select decision", "Pass to Submission",
-                     "Return for Rework"]
+                    [
+                        "Select decision",
+                        "Pass to Submission",
+                        "Return for Rework"
+                    ],
+                    key=f"medical_decision_{cid}"
                 )
-            else:
-                decision = "Pass to Next Stage"
 
-            comment = st.text_area("Handover / Review Comments")
+            # Show only the submit button initially
+            submit_key = f"show_submit_{cid}"
 
-            if st.button("Confirm Handover"):
-                if current in ["Quality Review", "Medical Review"]:
-                    if decision == "Select decision":
-                        st.error("Select a review decision first.")
-                        st.stop()
+            if st.button(
+                "Submit to Next Workflow",
+                key=f"open_submit_{cid}"
+            ):
+                st.session_state[submit_key] = True
 
-                    if decision == "Return for Rework":
+            # Display comments only after clicking Submit
+            if st.session_state.get(submit_key, False):
+
+                comment = st.text_area(
+                    "Submit Comments (Mandatory)",
+                    key=f"submit_comment_{cid}"
+                )
+
+                if st.button(
+                    "Confirm Submit",
+                    key=f"confirm_submit_{cid}"
+                ):
+
                         if not comment.strip():
-                            st.error("Comments are mandatory for rework.")
-                            st.stop()
-
-                        case["comments"].append(comment)
-                        case["stage"] = "Data Entry"
-                        case["status"] = "Returned for Rework"
-                        case["history"].append("Returned for rework")
-                        log_action(cid, "Returned for rework")
-
-                    else:
-                        case["stage"] = next_stage
-                        case["status"] = "In Progress"
-                        case["history"].append("Passed to " + next_stage)
-                        log_action(cid, "Passed to " + next_stage)
-
-                else:
-                    case["stage"] = next_stage
-                    case["status"] = "Completed" if next_stage == "Completed" else "In Progress"
-                    case["history"].append("Passed to " + next_stage)
-                    log_action(cid, "Passed to " + next_stage)
-
-                st.success("Workflow updated successfully.")
-                st.rerun()
+                            st.error("Please enter submission comments.")
+                        
+                        elif current in ["Quality Review", "Medical Review"] and decision == "Select decision":
+                            st.error("Please select a review decision first.")
+    
+                        else:
+                            case.setdefault("comments", []).append(comment)
+    
+                            if decision == "Return for Rework":
+    
+                                case["stage"] = "Data Entry"
+                                case["status"] = "Returned for Rework"
+    
+                                case["history"].append(
+                                    f"{current}: Returned to Data Entry. Comment: {comment}"
+                                )
+    
+                                log_action(
+                                    cid,
+                                    f"{current}: Returned for rework. Comment: {comment}"
+                                )
+    
+                            else:
+    
+                                case["stage"] = next_stage
+    
+                                case["status"] = (
+                                    "Completed"
+                                    if next_stage == "Completed"
+                                    else "In Progress"
+                                )
+    
+                                case["history"].append(
+                                    f"Submitted from {current} to {next_stage}. Comment: {comment}"
+                                )
+    
+                                log_action(
+                                    cid,
+                                    f"Submitted from {current} to {next_stage}. Comment: {comment}"
+                                )
+    
+                            st.session_state[submit_key] = False
+    
+                            st.success(
+                                f"Case successfully submitted to {case['stage']}!"
+                            )
+    
+                            st.rerun()
 
         else:
             st.success("This case is completed.")
