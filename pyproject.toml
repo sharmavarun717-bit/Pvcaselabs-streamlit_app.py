@@ -1,11 +1,12 @@
 [project]
-name = "blank-app-template"
-version = "0.1.0"
-description = "A simple Streamlit app template."
+name = "pv-caselab-training"
+version = "0.2.0"
+description = "Educational pharmacovigilance case-processing training simulator"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
-    "streamlit>=1.61.1",
+    "pandas>=2.0",
+    "streamlit>=1.40",
 ]
 
 [tool.uv]
