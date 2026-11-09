@@ -127,6 +127,7 @@ elif page == "ICSR Case Processing":
         cid = st.selectbox("Select Case ID", list(st.session_state.cases.keys()))
         case = st.session_state.cases[cid]
         st.write("Current workflow:", f"**{case['stage']}**")
+        # Lab and Literature are deliberately at the end of the tab row, after Narrative and Documents.
         section_fields = {
             "General": ["Case Type", "Initial / Follow-up", "Awareness Date", "Country", "Case Seriousness"],
             "Source": ["Source Category", "Source Reference", "Date Source Received"],
@@ -135,14 +136,12 @@ elif page == "ICSR Case Processing":
             "Clinical Trial": ["Study ID", "Protocol Number", "Study Site", "Investigator"],
             "Product": ["Product Name", "Active Ingredient", "Product Classification", "Dosage", "Route", "Frequency", "Indication", "Reported Indication", "MedDRA Indication Coded Term", "MedDRA Indication Code", "Indication Coding Status", "Indication Dictionary Version", "WHODrug Preferred Name", "WHODrug Drug Code", "ATC Code", "Strength", "Dosage Form", "WHODrug Version", "Product Coding Status", "Batch Number", "Therapy Start Date", "Therapy Stop Date", "Dechallenge", "Rechallenge"],
             "Event": ["Verbatim Event", "MedDRA LLT", "MedDRA LLT Code", "MedDRA PT", "MedDRA PT Code", "MedDRA HLT", "MedDRA HLGT", "MedDRA SOC", "Primary SOC", "MedDRA Version", "Event Coding Status", "Coding Comments", "Event Onset Date", "Event Outcome", "Seriousness Criteria"],
-            "Laboratory": ["Test Name", "Test Result", "Unit", "Reference Range"],
             "Causality": ["WHO-UMC Category", "Assessment Rationale"],
-            "Literature": ["Article Title", "Authors", "Journal", "DOI", "Publication Year"],
             "Narrative": ["Structured Case Narrative"],
         }
-        tab_names = list(section_fields) + ["Documents"]
+        tab_names = list(section_fields) + ["Documents", "Laboratory", "Literature"]
         tabs = st.tabs(tab_names)
-        for tab, (section, fields) in zip(tabs[:-1], section_fields.items()):
+        for tab, (section, fields) in zip(tabs[:len(section_fields)], section_fields.items()):
             with tab:
                 st.subheader(f"{section} Information")
                 with st.form(f"form_{section}_{cid}"):
@@ -154,7 +153,7 @@ elif page == "ICSR Case Processing":
                             values[field] = st.selectbox(field, choices, index=choices.index(current_value) if current_value in choices else 0)
                         elif field == "Structured Case Narrative":
                             generated = generate_argus_like_narrative(cid, case)
-                            values[field] = st.text_area(field, value=case["data"].get(field, generated), height=350, help="Original ARGUS/ARISg-inspired training format; not a copied proprietary template.")
+                            values[field] = st.text_area(field, value=case["data"].get(field, generated), height=350, help="Original enterprise-inspired training format; not a copied proprietary template.")
                         else:
                             values[field] = st.text_input(field, value=str(case["data"].get(field, "")))
                     if st.form_submit_button("Save " + section):
@@ -162,10 +161,10 @@ elif page == "ICSR Case Processing":
                         log_action(cid, section + " information saved")
                         st.success(section + " information saved.")
 
-        # Document Management is an ICSR tab immediately after Narrative (not a navigation page).
-        with tabs[-1]:
+        # Documents tab retained in the case-processing form.
+        with tabs[len(section_fields)]:
             st.subheader("Case Documents")
-            st.caption("Attach supporting training documents to this case. PDF is supported. Files are stored for this Streamlit session; use synthetic material only.")
+            st.caption("Attach supporting synthetic training documents. PDF is supported.")
             with st.form(f"document_upload_form_{cid}"):
                 uploaded_files = st.file_uploader("Attach documents (PDF, Word, Excel, or image)", type=["pdf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png"], accept_multiple_files=True, key=f"case_documents_{cid}")
                 category = st.selectbox("Document category", DOC_CATEGORIES, key=f"document_category_{cid}")
@@ -200,12 +199,34 @@ elif page == "ICSR Case Processing":
                             st.write(document["description"])
                         st.download_button("Download", document["content"], file_name=document["name"], mime=document["content_type"], key=f"download_{cid}_{index}")
                         if document["name"].lower().endswith(".pdf"):
-                            try:
+                            if hasattr(st, "pdf"):
                                 st.pdf(document["content"])
-                            except AttributeError:
+                            else:
                                 st.info("PDF preview is unavailable in this Streamlit version; use Download.")
             else:
                 st.info("No documents attached to this case yet.")
+
+        # Laboratory tab at the end of ICSR sections.
+        with tabs[len(section_fields) + 1]:
+            st.subheader("Laboratory Information")
+            with st.form(f"laboratory_form_{cid}"):
+                lab_fields = ["Test Name", "Test Date", "Test Result", "Unit", "Reference Range", "Abnormal Indicator", "Comments"]
+                lab_values = {field: st.text_input(field, value=str(case["data"].get(field, "")), key=f"lab_{field}_{cid}") for field in lab_fields}
+                if st.form_submit_button("Save Laboratory Information"):
+                    case["data"].update(lab_values)
+                    log_action(cid, "Laboratory information saved")
+                    st.success("Laboratory information saved.")
+
+        # Literature tab at the very end.
+        with tabs[len(section_fields) + 2]:
+            st.subheader("Literature Information")
+            with st.form(f"literature_form_{cid}"):
+                literature_fields = ["Article Title", "Authors", "Journal", "DOI", "Publication Year", "PMID", "Literature Reference", "Literature Assessment"]
+                literature_values = {field: st.text_input(field, value=str(case["data"].get(field, "")), key=f"literature_{field}_{cid}") for field in literature_fields}
+                if st.form_submit_button("Save Literature Information"):
+                    case["data"].update(literature_values)
+                    log_action(cid, "Literature information saved")
+                    st.success("Literature information saved.")
 
         st.divider()
         st.subheader("Submit to Next Workflow")
