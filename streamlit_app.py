@@ -188,19 +188,49 @@ elif page == "ICSR Data Entry":
                 "Study ID", "Protocol Number",
                 "Study Site", "Investigator"
             ],
-            "Product": [
-                "Product Name", "Active Ingredient",
-                "Product Classification", "Dosage",
-                "Route", "Frequency", "Indication",
-                "Batch Number", "Therapy Start Date",
-                "Therapy Stop Date", "Dechallenge", "Rechallenge"
-            ],
-            "Event": [
-                "Verbatim Event", "MedDRA LLT",
-                "MedDRA PT", "MedDRA SOC",
-                "Event Onset Date", "Event Outcome",
-                "Seriousness Criteria"
-            ],
+           "Product": [
+    "Product Name",
+    "Active Ingredient",
+    "Product Classification",
+    "Dosage",
+    "Route",
+    "Frequency",
+    "Indication",
+    "Reported Indication",
+    "MedDRA Indication Coded Term",
+    "MedDRA Indication Code",
+    "Indication Coding Status",
+    "Indication Dictionary Version",
+    "WHODrug Preferred Name",
+    "WHODrug Drug Code",
+    "ATC Code",
+    "Strength",
+    "Dosage Form",
+    "WHODrug Version",
+    "Product Coding Status",
+    "Batch Number",
+    "Therapy Start Date",
+    "Therapy Stop Date",
+    "Dechallenge",
+    "Rechallenge"
+],
+           "Event": [
+    "Verbatim Event",
+    "MedDRA LLT",
+    "MedDRA LLT Code",
+    "MedDRA PT",
+    "MedDRA PT Code",
+    "MedDRA HLT",
+    "MedDRA HLGT",
+    "MedDRA SOC",
+    "Primary SOC",
+    "MedDRA Version",
+    "Event Coding Status",
+    "Coding Comments",
+    "Event Onset Date",
+    "Event Outcome",
+    "Seriousness Criteria"
+],
             "Lab Tests": [
                 "Test Name", "Test Result",
                 "Unit", "Reference Range"
