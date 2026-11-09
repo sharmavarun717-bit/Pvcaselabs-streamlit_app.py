@@ -1,2 +1,6 @@
 [client]
 showSidebarNavigation = false
+
+# Local single-user testing only: do not expose this app to the network.
+[server]
+address = "127.0.0.1"

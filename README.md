@@ -2,34 +2,25 @@
 
 An original Streamlit pharmacovigilance case-processing and training simulation. Educational demonstrations only; use synthetic data. This is not a validated production pharmacovigilance system.
 
-## Run locally
+## Single-person local testing
 
-Requires Python 3.11 or newer and `uv`.
+The current setup is intended for **one person running the app on their own computer**. Start it locally:
 
 ```bash
 uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-## Keeping cases after logout
+The Streamlit server is configured to bind to `127.0.0.1`, so it is intended to be available only on the computer running it. Do not deploy this single-user setup publicly or expose the port to a network. The demo role selector is only a way for the one tester to inspect role-specific training screens; it is not login, authentication, or access control.
 
-Case records are stored in SQLite, not in the browser's Streamlit session. The default database is `data/pv_caselab.sqlite3`; uploaded files are stored in `data/documents/`. Signing out, closing the browser, or starting a new Streamlit session will not clear these records. To keep them, do not delete the `data` directory and back it up regularly. You can set `PV_CASELAB_DATA_DIR` to a persistent folder before starting the app.
+## Current local storage
 
-For example, on Linux/macOS:
+For this test phase the app uses local SQLite and local file storage:
 
-```bash
-export PV_CASELAB_DATA_DIR=/path/to/persistent/pv-caselab-data
-uv run streamlit run streamlit_app.py
-```
+- Database: `data/pv_caselab.sqlite3`
+- Uploaded documents: `data/documents/`
 
-On Windows PowerShell:
-
-```powershell
-$env:PV_CASELAB_DATA_DIR = "D:\pv-caselab-data"
-uv run streamlit run streamlit_app.py
-```
-
-**Hosting note:** local SQLite and files persist across logout/restart only if the host preserves the configured directory. Streamlit Community Cloud's local filesystem can be ephemeral across redeploys/restarts; use persistent mounted storage or a managed database/file store if you need durable hosted data. For five people, run one shared app against one persistent data directory; do not run separate copies with separate local databases if users need to see the same cases. Back up the entire data directory, including documents.
+Case edits and documents are persisted across browser logout/restart as long as these files remain on the same computer. Back up the entire `data` directory. The storage choice can be revisited before any shared or hosted deployment. Do not run multiple app instances against the same SQLite database while testing.
 
 ## Coding dictionaries
 
@@ -38,7 +29,7 @@ The `pages/1_Coding_Workspaces.py` page provides MedDRA event coding and WHODrug
 ## Important limitations
 
 - Synthetic training data only; never upload real patient or reporter identifiers.
-- Demonstration role selection is not authentication or an authorization boundary.
+- Single-person local test setup; no production authentication or multi-user access control.
 - Audit records are persistent but not immutable or regulatory validated.
 - The XML download is an educational sketch, not a valid E2B(R3) message or a regulatory submission.
-- The app's SQLite database and document files are the persistent source of truth. Previous in-memory-only cases from older app versions cannot be recovered after their Streamlit session ended.
+- This local storage configuration should not be treated as a shared database or production backup solution. Decide on hosted/shared storage only after testing and planning backups.
