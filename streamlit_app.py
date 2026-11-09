@@ -55,7 +55,7 @@ st.caption("Pharmacovigilance Case Processing & Training Simulation")
 
 with st.sidebar:
     st.title("PV Case Lab")
-        page = st.radio(
+    page = st.radio(
         "Navigation",
         [
             "Dashboard",
